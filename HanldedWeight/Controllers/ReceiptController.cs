@@ -16,6 +16,7 @@ namespace HandledWeight.Controllers
         public int? Id { get; set; }
         public decimal? WeightOut { get; set; }
         public decimal? Tara { get; set; }
+        public int? PrinterId { get; set; }
     }
 
     [ApiController]
@@ -31,6 +32,57 @@ namespace HandledWeight.Controllers
             _printerService = printerService;
         }
 
+        // GET: api/Receipt
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Receipts>>> GetAll(
+            [FromQuery] bool? isPublic = null,
+            [FromQuery] DateTime? startDate = null,
+            [FromQuery] DateTime? endDate = null,
+            [FromQuery] string? plate = null,
+            [FromQuery] string? folio = null)
+        {
+            var query = _db.Receipts.Where(r => r.DeletedAt == null);
+
+            if (isPublic.HasValue)
+            {
+                query = query.Where(r => r.IsPublic == isPublic.Value);
+            }
+
+            if (startDate.HasValue)
+            {
+                var sDate = startDate.Value.Date;
+                query = query.Where(r => r.CreatedAt >= sDate);
+            }
+
+            if (endDate.HasValue)
+            {
+                var eDate = endDate.Value.Date.AddDays(1).AddTicks(-1);
+                query = query.Where(r => r.CreatedAt <= eDate);
+            }
+
+            if (!string.IsNullOrWhiteSpace(plate))
+            {
+                var pClean = plate.Trim().ToLower();
+                query = query.Where(r => r.Vehicle != null && r.Vehicle.Plate.ToLower().Contains(pClean));
+            }
+
+            if (!string.IsNullOrWhiteSpace(folio))
+            {
+                var fClean = folio.Trim().ToLower();
+                query = query.Where(r => r.ReceiptNumber != null && r.ReceiptNumber.ToLower().Contains(fClean));
+            }
+
+            var list = await query
+                .Include(r => r.Product)
+                .Include(r => r.Vehicle)
+                .Include(r => r.Driver)
+                .Include(r => r.BussinesPartner)
+                .OrderByDescending(r => r.CreatedAt)
+                .ToListAsync();
+
+            return Ok(list);
+        }
+
         // POST: api/Receipt
         [HttpPost]
         public async Task<ActionResult<Receipts>> PostReceipt([FromBody] Receipts receipt)
@@ -38,30 +90,73 @@ namespace HandledWeight.Controllers
             if (receipt == null)
                 return BadRequest(new { message = "El objeto de recibo no puede ser nulo." });
 
-            // Verificar si el vehiculo existe
-            var vehicle = await _db.Vehicle.FindAsync(receipt.VehicleId);
-            if (vehicle == null)
-                return BadRequest(new { message = $"Vehiculo con Id {receipt.VehicleId} no encontrado." });
-
-            // Si no se asigno folio, usar la placa del vehiculo
-            if (string.IsNullOrWhiteSpace(receipt.ReceiptNumber))
+            try
             {
-                receipt.ReceiptNumber = vehicle.Plate ?? string.Empty;
+                // Verificar si el vehiculo existe
+                var vehicle = await _db.Vehicle.FindAsync(receipt.VehicleId);
+                if (vehicle == null)
+                    return BadRequest(new { message = $"Vehiculo con Id {receipt.VehicleId} no encontrado." });
+
+                // Asignar conductor por defecto si no es valido
+                if (receipt.DriverId <= 0 || await _db.Drivers.FindAsync(receipt.DriverId) == null)
+                {
+                    var defaultDriver = await _db.Drivers.FirstOrDefaultAsync(d => d.DeletedAt == null);
+                    if (defaultDriver != null) receipt.DriverId = defaultDriver.Id;
+                }
+
+                // Asignar producto por defecto si no viene especificado
+                if (receipt.ProductId <= 0 || await _db.Products.FindAsync(receipt.ProductId) == null)
+                {
+                    var defaultProd = await _db.Products.FirstOrDefaultAsync(p => p.DeletedAt == null);
+                    if (defaultProd != null) receipt.ProductId = defaultProd.Id;
+                }
+
+                // Asignar socio por defecto si no viene especificado
+                if (receipt.BussinesPartnerId <= 0 || await _db.BussinesPartners.FindAsync(receipt.BussinesPartnerId) == null)
+                {
+                    var defaultBp = await _db.BussinesPartners.FirstOrDefaultAsync(bp => bp.DeletedAt == null);
+                    if (defaultBp != null) receipt.BussinesPartnerId = defaultBp.Id;
+                }
+
+                // Si es pesada publica, normalizar pesos
+                if (receipt.IsPublic)
+                {
+                    receipt.WeightIn = receipt.WeightIn ?? receipt.GrossWeight ?? 0;
+                    receipt.GrossWeight = receipt.WeightIn;
+                    receipt.WeightOut = 0;
+                    receipt.Tara = 0;
+                    receipt.TotalWeight = receipt.WeightIn;
+                    receipt.TotalWeightAdjust = receipt.WeightIn;
+                }
+
+                // Si no se asigno folio, usar la placa del vehiculo
+                if (string.IsNullOrWhiteSpace(receipt.ReceiptNumber))
+                {
+                    receipt.ReceiptNumber = receipt.IsPublic 
+                        ? $"PUB-{DateTime.Now:yyyyMMddHHmmss}" 
+                        : (vehicle.Plate ?? string.Empty);
+                }
+
+                receipt.CreatedAt = DateTime.UtcNow;
+                receipt.LastUpdatedAt = DateTime.UtcNow;
+
+                _db.Receipts.Add(receipt);
+                await _db.SaveChangesAsync();
+
+                // Cargar relaciones para devolver el objeto completo
+                await _db.Entry(receipt).Reference(r => r.Product).LoadAsync();
+                await _db.Entry(receipt).Reference(r => r.Vehicle).LoadAsync();
+                await _db.Entry(receipt).Reference(r => r.Driver).LoadAsync();
+                await _db.Entry(receipt).Reference(r => r.BussinesPartner).LoadAsync();
+
+                return CreatedAtAction(nameof(GetById), new { id = receipt.Id }, receipt);
             }
-
-            receipt.CreatedAt = DateTime.UtcNow;
-            receipt.LastUpdatedAt = DateTime.UtcNow;
-
-            _db.Receipts.Add(receipt);
-            await _db.SaveChangesAsync();
-
-            // Cargar relaciones para devolver el objeto completo
-            await _db.Entry(receipt).Reference(r => r.Product).LoadAsync();
-            await _db.Entry(receipt).Reference(r => r.Vehicle).LoadAsync();
-            await _db.Entry(receipt).Reference(r => r.Driver).LoadAsync();
-            await _db.Entry(receipt).Reference(r => r.BussinesPartner).LoadAsync();
-
-            return CreatedAtAction(nameof(GetById), new { id = receipt.Id }, receipt);
+            catch (Exception ex)
+            {
+                var innermost = ex;
+                while (innermost.InnerException != null) innermost = innermost.InnerException;
+                return StatusCode(500, new { message = $"Error al registrar recibo: {innermost.Message}" });
+            }
         }
 
         // GET: api/Receipt/{id}
@@ -87,7 +182,7 @@ namespace HandledWeight.Controllers
         public async Task<ActionResult<IEnumerable<Receipts>>> GetPending()
         {
             var pending = await _db.Receipts
-                .Where(r => (r.WeightOut == null || r.WeightOut == 0) && r.DeletedAt == null)
+                .Where(r => (r.WeightOut == null || r.WeightOut == 0) && !r.IsPublic && r.DeletedAt == null)
                 .Include(r => r.Product)
                 .Include(r => r.Vehicle)
                 .Include(r => r.Driver)
@@ -140,58 +235,45 @@ namespace HandledWeight.Controllers
                 receipt.GrossWeight = receipt.WeightIn;
             }
 
-            // Recalcular Peso Neto
-            if (receipt.GrossWeight.HasValue && receipt.Tara.HasValue && receipt.Tara > 0)
+            // Recalcular Peso Neto: si entrada es mayor que salida (WeightIn - WeightOut), si salida es mayor (WeightOut - WeightIn)
+            decimal pEntrada = receipt.WeightIn ?? receipt.GrossWeight ?? 0;
+            decimal pSalida = receipt.WeightOut ?? receipt.Tara ?? 0;
+            decimal pNeto = (pEntrada >= pSalida) ? (pEntrada - pSalida) : (pSalida - pEntrada);
+
+            receipt.TotalWeight = pNeto;
+
+            if (pEntrada >= pSalida)
             {
-                receipt.TotalWeight = Math.Abs(receipt.GrossWeight.Value - receipt.Tara.Value);
+                receipt.GrossWeight = pEntrada;
+                receipt.Tara = pSalida;
             }
-            else if (receipt.WeightIn.HasValue && receipt.WeightOut.HasValue)
+            else
             {
-                receipt.TotalWeight = Math.Abs(receipt.WeightIn.Value - receipt.WeightOut.Value);
+                receipt.GrossWeight = pSalida;
+                receipt.Tara = pEntrada;
             }
 
             // Recalcular Factor de Ajuste (descuento) si aplica
-            if (receipt.FitFactor.HasValue && receipt.FitFactor > 0 && receipt.TotalWeight.HasValue)
+            if (receipt.FitFactor.HasValue && receipt.FitFactor > 0)
             {
                 decimal factorDec = receipt.FitFactor.Value >= 1 ? (receipt.FitFactor.Value / 100m) : receipt.FitFactor.Value;
-                receipt.TotalWeightAdjust = receipt.TotalWeight.Value * (1m - factorDec);
+                receipt.TotalWeightAdjust = pNeto * (1m - factorDec);
             }
-            else if (receipt.TotalWeight.HasValue)
+            else
             {
-                receipt.TotalWeightAdjust = receipt.TotalWeight;
+                receipt.TotalWeightAdjust = pNeto;
             }
 
             // Recalcular Importe Total si aplica precio
-            if (receipt.Price.HasValue && receipt.Price > 0 && receipt.TotalWeightAdjust.HasValue)
+            if (receipt.Price.HasValue && receipt.Price > 0)
             {
-                receipt.TotalAmount = (receipt.TotalWeightAdjust.Value) * (receipt.Price.Value);
-            }
-            else if (receipt.Price.HasValue && receipt.Price > 0 && receipt.TotalWeight.HasValue)
-            {
-                receipt.TotalAmount = (receipt.TotalWeight.Value) * (receipt.Price.Value);
+                receipt.TotalAmount = (receipt.TotalWeightAdjust ?? pNeto) * (receipt.Price.Value);
             }
 
             receipt.LastUpdatedAt = DateTime.UtcNow;
 
             _db.Receipts.Update(receipt);
             await _db.SaveChangesAsync();
-
-            // Buscar impresora activa y enviar a imprimir el ticket
-            try
-            {
-                var device = await _db.Devices.FirstOrDefaultAsync(d => d.IsActive && d.Unit == null)
-                             ?? await _db.Devices.FirstOrDefaultAsync(d => d.IsActive);
-
-                if (device != null)
-                {
-                    var pageToPrint = PosTicketService.GenerateReceiptText(receipt, useEscPos: true);
-                    await _printerService.PrintTextAsync(device.Port, pageToPrint, device.BaudRate);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error al imprimir recibo #{receipt.Id}: {ex.Message}");
-            }
 
             return Ok(receipt);
         }
@@ -200,7 +282,7 @@ namespace HandledWeight.Controllers
         // Endpoint para imprimir o reimprimir un recibo existente
         [HttpPost("print/{id}")]
         [HttpGet("print/{id}")]
-        public async Task<IActionResult> PrintReceipt(int id)
+        public async Task<IActionResult> PrintReceipt(int id, [FromQuery] int? printerId = null)
         {
             var receipt = await _db.Receipts
                 .Include(r => r.Product)
@@ -212,13 +294,25 @@ namespace HandledWeight.Controllers
             if (receipt == null)
                 return NotFound(new { message = $"Recibo con Id {id} no encontrado." });
 
-            var device = await _db.Devices.FirstOrDefaultAsync(d => d.IsActive && d.Unit == null)
-                         ?? await _db.Devices.FirstOrDefaultAsync(d => d.IsActive);
+            Devices? device = null;
+            if (printerId.HasValue && printerId.Value > 0)
+            {
+                device = await _db.Devices.FirstOrDefaultAsync(d => d.Id == printerId.Value && d.DeletedAt == null);
+            }
 
-            if (device == null)
-                return BadRequest(new { message = "No hay impresora activa configurada." });
+            if (device == null || string.IsNullOrWhiteSpace(device.Port))
+            {
+                device = await _db.Devices
+                    .Where(d => d.IsActive && (d.Unit == null || d.Unit.Trim() == "") && !string.IsNullOrWhiteSpace(d.Port))
+                    .OrderByDescending(d => d.UpdatedAt)
+                    .FirstOrDefaultAsync();
+            }
 
-            var pageToPrint = PosTicketService.GenerateReceiptText(receipt, useEscPos: true);
+            if (device == null || string.IsNullOrWhiteSpace(device.Port))
+                return BadRequest(new { message = "No hay impresora activa con puerto COM valido configurada." });
+
+            var factory = await _db.Factory.Where(f => f.DeletedAt == null).OrderByDescending(f => f.Id).FirstOrDefaultAsync();
+            var pageToPrint = PosTicketService.GenerateReceiptText(receipt, factory, useEscPos: true);
             var success = await _printerService.PrintTextAsync(device.Port, pageToPrint, device.BaudRate);
 
             return Ok(new 
@@ -230,3 +324,4 @@ namespace HandledWeight.Controllers
         }
     }
 }
+

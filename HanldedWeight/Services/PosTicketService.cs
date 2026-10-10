@@ -19,20 +19,46 @@ namespace HandledWeight.Services
 
         public static string GenerateReceiptText(Receipts receipt, bool useEscPos = true)
         {
+            return GenerateReceiptText(receipt, null, useEscPos);
+        }
+
+        public static string GenerateReceiptText(Receipts receipt, Factory? factory, bool useEscPos = true)
+        {
             var sb = new StringBuilder();
 
             if (useEscPos) sb.Append(EscInit);
 
             // ================= ENCABEZADO =================
             if (useEscPos) sb.Append(EscCenter);
-            sb.AppendLine("FORRAJERA SAN RAFAEL, S.A. DE C.V.");
-            sb.AppendLine("KM.4 CARR. SAN JUAN - GUADALAJARA");
-            sb.AppendLine("SAN JUAN DE LOS LAGOS, JAL.");
-            sb.AppendLine("TEL: (395) 785 33 06");
+            if (factory != null && !string.IsNullOrWhiteSpace(factory.Name))
+            {
+                sb.AppendLine(factory.Name);
+                if (!string.IsNullOrWhiteSpace(factory.RFC)) sb.AppendLine($"RFC: {factory.RFC}");
+                if (!string.IsNullOrWhiteSpace(factory.Address)) sb.AppendLine(factory.Address);
+                if (!string.IsNullOrWhiteSpace(factory.Phone)) sb.AppendLine($"TEL: {factory.Phone}");
+            }
+            else
+            {
+                sb.AppendLine("FORRAJERA SAN RAFAEL, S.A. DE C.V.");
+                sb.AppendLine("KM.4 CARR. SAN JUAN - GUADALAJARA");
+                sb.AppendLine("SAN JUAN DE LOS LAGOS, JAL.");
+                sb.AppendLine("TEL: (395) 785 33 06");
+            }
             sb.AppendLine();
             
             if (useEscPos) sb.Append(EscBoldOn);
-            sb.AppendLine("SALIDA DE PROVEEDORES");
+            if (receipt.IsPublic)
+            {
+                sb.AppendLine("PESAJE PUBLICO");
+            }
+            else if (receipt.WeightOut.HasValue && receipt.WeightOut > 0)
+            {
+                sb.AppendLine("TICKET DE SALIDA");
+            }
+            else
+            {
+                sb.AppendLine("TICKET DE ENTRADA");
+            }
             if (useEscPos) sb.Append(EscBoldOff);
 
             sb.AppendLine(new string('-', MaxWidth));
@@ -50,14 +76,45 @@ namespace HandledWeight.Services
             sb.AppendLine(new string('-', MaxWidth));
 
             // ================= PESAJES =================
-            if (useEscPos) sb.Append(EscBoldOn);
-            sb.AppendLine(FormatLine("PESO BRUTO:", $"{receipt.GrossWeight ?? 0:N0} kg"));
-            sb.AppendLine(FormatLine("TARA:", $"{receipt.Tara ?? 0:N0} kg"));
-            sb.AppendLine(FormatLine("PESO NETO:", $"{receipt.TotalWeight ?? 0:N0} kg"));
-            if (useEscPos) sb.Append(EscBoldOff);
+            decimal pEntrada = receipt.WeightIn ?? receipt.GrossWeight ?? 0;
+            decimal pSalida = receipt.WeightOut ?? receipt.Tara ?? 0;
 
-            // Factores de ajuste (si aplican)
-            if (receipt.FitFactor.HasValue && receipt.FitFactor > 0)
+            if (receipt.IsPublic)
+            {
+                if (useEscPos) sb.Append(EscBoldOn);
+                sb.AppendLine(FormatLine("PESO REGISTRADO:", $"{pEntrada:N0} kg"));
+                sb.AppendLine(FormatLine("PESO BRUTO:", $"{pEntrada:N0} kg"));
+                sb.AppendLine(FormatLine("PESO NETO:", $"{pEntrada:N0} kg"));
+                if (useEscPos) sb.Append(EscBoldOff);
+            }
+            else if (pSalida == 0)
+            {
+                // Solo primera pesada (Entrada)
+                if (useEscPos) sb.Append(EscBoldOn);
+                sb.AppendLine(FormatLine("PESO ENTRADA:", $"{pEntrada:N0} kg"));
+                sb.AppendLine(FormatLine("PESO SALIDA:", "PENDIENTE"));
+                sb.AppendLine(FormatLine("PESO BRUTO:", $"{pEntrada:N0} kg"));
+                sb.AppendLine(FormatLine("ESTADO:", "EN PATIO / PENDIENTE"));
+                if (useEscPos) sb.Append(EscBoldOff);
+            }
+            else
+            {
+                // Lógica de pesajes: si entrada es mayor que salida (WeightIn - WeightOut), si salida es mayor (WeightOut - WeightIn)
+                decimal pNeto = (pEntrada >= pSalida) ? (pEntrada - pSalida) : (pSalida - pEntrada);
+                decimal pBruto = (pEntrada >= pSalida) ? pEntrada : pSalida;
+                decimal pTara = (pEntrada >= pSalida) ? pSalida : pEntrada;
+
+                if (useEscPos) sb.Append(EscBoldOn);
+                sb.AppendLine(FormatLine("PESO ENTRADA:", $"{pEntrada:N0} kg"));
+                sb.AppendLine(FormatLine("PESO SALIDA:", $"{pSalida:N0} kg"));
+                sb.AppendLine(FormatLine("PESO BRUTO:", $"{pBruto:N0} kg"));
+                sb.AppendLine(FormatLine("TARA:", $"{pTara:N0} kg"));
+                sb.AppendLine(FormatLine("PESO NETO:", $"{pNeto:N0} kg"));
+                if (useEscPos) sb.Append(EscBoldOff);
+            }
+
+            // Factores de ajuste (si aplican y no es público)
+            if (!receipt.IsPublic && receipt.FitFactor.HasValue && receipt.FitFactor > 0)
             {
                 string factorStr = receipt.FitFactor.Value >= 1 
                     ? $"{receipt.FitFactor.Value:N2}%" 
@@ -68,14 +125,23 @@ namespace HandledWeight.Services
                 if (useEscPos) sb.Append(EscBoldOff);
             }
 
-            // Datos de precio / importe (opcional si es venta/compra valorizada)
+            // Datos de precio / importe / tarifa
             if (receipt.TotalAmount > 0)
             {
                 sb.AppendLine(new string('-', MaxWidth));
-                sb.AppendLine(FormatLine("PRECIO:", $"{receipt.Price ?? 0:C2}"));
-                if (useEscPos) sb.Append(EscBoldOn);
-                sb.AppendLine(FormatLine("IMPORTE TOTAL:", $"{receipt.TotalAmount:C2}"));
-                if (useEscPos) sb.Append(EscBoldOff);
+                if (receipt.IsPublic)
+                {
+                    if (useEscPos) sb.Append(EscBoldOn);
+                    sb.AppendLine(FormatLine("TARIFA SERVICIO:", $"{receipt.TotalAmount:C2}"));
+                    if (useEscPos) sb.Append(EscBoldOff);
+                }
+                else
+                {
+                    sb.AppendLine(FormatLine("PRECIO:", $"{receipt.Price ?? 0:C2}"));
+                    if (useEscPos) sb.Append(EscBoldOn);
+                    sb.AppendLine(FormatLine("IMPORTE TOTAL:", $"{receipt.TotalAmount:C2}"));
+                    if (useEscPos) sb.Append(EscBoldOff);
+                }
             }
 
             // Observaciones

@@ -1,4 +1,4 @@
-﻿using HandledWeight.Entities;
+using HandledWeight.Entities;
 using HandledWeight.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -31,6 +31,26 @@ namespace HandledWeight.Controllers
         {
             var vehicles = _context.Vehicle.ToList();
             return Ok(vehicles);
+        }
+
+        [HttpPut("updateVehicle/{id?}")]
+        public async Task<IActionResult> UpdateVehicle(int? id, [FromBody] Entities.Vehicle vehicle)
+        {
+            var targetId = (id.HasValue && id.Value > 0) ? id.Value : vehicle.Id;
+            var existing = await _context.Vehicle.FindAsync(targetId);
+            if (existing == null)
+            {
+                return NotFound(new { message = "Vehículo no encontrado" });
+            }
+
+            existing.Plate = vehicle.Plate;
+            existing.Branch = vehicle.Branch;
+            existing.SerialNumber = vehicle.SerialNumber;
+            existing.KindOfVehicle = vehicle.KindOfVehicle ?? vehicle.Type;
+            existing.LastUpdatedAt = DateTime.Now;
+
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "Vehículo actualizado exitosamente!", vehicle = existing });
         }
     }
 }

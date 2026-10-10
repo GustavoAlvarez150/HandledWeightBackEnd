@@ -30,6 +30,15 @@ namespace HandledWeight.Controllers
                 return NotFound(new { message = "No se encontro impresora." });
             }
 
+            // Marcar esta impresora como activa y actualizar fecha
+            var allPrinters = await _context.Devices
+                .Where(d => d.Unit == null || d.Unit.Trim() == "")
+                .ToListAsync();
+            foreach (var p in allPrinters)
+            {
+                p.IsActive = (p.Id == id);
+            }
+
             printer.IsActive = true;
             printer.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
@@ -83,7 +92,7 @@ namespace HandledWeight.Controllers
 
         [HttpGet("PrintReceipt/{receiptId}")]
         [HttpPost("PrintReceipt/{receiptId}")]
-        public async Task<IActionResult> PrintReceipt(int receiptId)
+        public async Task<IActionResult> PrintReceipt(int receiptId, [FromQuery] int? printerId = null)
         {
             var receipt = await _context.Receipts
                 .Include(r => r.Product)
@@ -97,15 +106,27 @@ namespace HandledWeight.Controllers
                 return NotFound(new { message = $"No se encontro el recibo con ID {receiptId}." });
             }
 
-            var device = await _context.Devices.FirstOrDefaultAsync(d => d.IsActive && d.Unit == null)
-                         ?? await _context.Devices.FirstOrDefaultAsync(d => d.IsActive);
-
-            if (device == null)
+            Devices? device = null;
+            if (printerId.HasValue && printerId.Value > 0)
             {
-                return BadRequest(new { message = "No hay ninguna impresora activa configurada." });
+                device = await _context.Devices.FirstOrDefaultAsync(d => d.Id == printerId.Value && d.DeletedAt == null);
             }
 
-            var ticketText = PosTicketService.GenerateReceiptText(receipt, useEscPos: true);
+            if (device == null || string.IsNullOrWhiteSpace(device.Port))
+            {
+                device = await _context.Devices
+                    .Where(d => d.IsActive && (d.Unit == null || d.Unit.Trim() == "") && !string.IsNullOrWhiteSpace(d.Port))
+                    .OrderByDescending(d => d.UpdatedAt)
+                    .FirstOrDefaultAsync();
+            }
+
+            if (device == null || string.IsNullOrWhiteSpace(device.Port))
+            {
+                return BadRequest(new { message = "No hay ninguna impresora activa con puerto COM valido configurada." });
+            }
+
+            var factory = await _context.Factory.Where(f => f.DeletedAt == null).OrderByDescending(f => f.Id).FirstOrDefaultAsync();
+            var ticketText = PosTicketService.GenerateReceiptText(receipt, factory, useEscPos: true);
             var success = await _printerService.PrintTextAsync(device.Port, ticketText, device.BaudRate);
 
             return Ok(new 

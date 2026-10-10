@@ -32,7 +32,7 @@ namespace HandledWeight.Controllers
         [HttpGet("getScale")]
         public async Task<IActionResult> GetScale() {
             var devices = await _context.Devices
-                .Where(d => d.Unit != null && d.Unit != "" && d.IsActive == true)
+                .Where(d => d.IsActive == true && d.Unit != null && d.Unit != "" && d.Unit.Trim() != "")
                 .ToListAsync();
             Console.WriteLine(devices);
             return Ok(devices);
@@ -42,7 +42,7 @@ namespace HandledWeight.Controllers
         public async Task<IActionResult> GetPrint()
         {
             var devices = await _context.Devices
-                .Where(d => (d.Unit == null || d.Unit == "") && d.IsActive == true)
+                .Where(d => d.IsActive == true && (d.Unit == null || d.Unit == "" || d.Unit.Trim() == ""))
                 .ToListAsync();
             return Ok(devices);
         }

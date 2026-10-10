@@ -1,4 +1,4 @@
-﻿using HandledWeight.Infrastructure.Persistence;
+using HandledWeight.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HandledWeight.Controllers
@@ -32,5 +32,24 @@ namespace HandledWeight.Controllers
             return Ok(products);
         }
 
+        [HttpPut("updateProduct/{id?}")]
+        public async Task<IActionResult> UpdateProduct(int? id, [FromBody] Entities.Products product)
+        {
+            var targetId = (id.HasValue && id.Value > 0) ? id.Value : product.Id;
+            var existing = await _context.Products.FindAsync(targetId);
+            if (existing == null)
+            {
+                return NotFound(new { message = "Producto no encontrado" });
+            }
+
+            existing.Name = product.Name;
+            existing.Description = product.Description;
+            existing.Price = product.Price;
+            existing.Unit = product.Unit;
+            existing.LastUpdatedAt = DateTime.Now;
+
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "Producto actualizado exitosamente!", product = existing });
+        }
     }
 }

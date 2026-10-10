@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 namespace HandledWeight.Infrastructure.Persistence{
     public class AppDbContext : DbContext{
@@ -13,6 +13,7 @@ namespace HandledWeight.Infrastructure.Persistence{
             public DbSet<Entities.Devices> Devices { get; set; }
             public DbSet<Entities.Drivers> Drivers { get; set; }
             public DbSet<Entities.Receipts> Receipts { get; set; }
+            public DbSet<Entities.Factory> Factory { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
             {
