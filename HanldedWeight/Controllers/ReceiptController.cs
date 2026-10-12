@@ -128,6 +128,12 @@ namespace HandledWeight.Controllers
                     receipt.TotalWeight = receipt.WeightIn;
                     receipt.TotalWeightAdjust = receipt.WeightIn;
                 }
+                else if (!receipt.WeightOut.HasValue || receipt.WeightOut == 0)
+                {
+                    // Pesada interna pendiente de salida: dejar WeightOut y Tara en null
+                    receipt.WeightOut = null;
+                    receipt.Tara = null;
+                }
 
                 // Si no se asigno folio, usar la placa del vehiculo
                 if (string.IsNullOrWhiteSpace(receipt.ReceiptNumber))
@@ -177,12 +183,12 @@ namespace HandledWeight.Controllers
         }
 
         // GET: api/Receipt/pending
-        // Retorna recibos que tienen WeightOut en 0 o nulo (salida pendiente)
+        // Retorna recibos internos que tienen WeightOut nulo (salida pendiente)
         [HttpGet("pending")]
         public async Task<ActionResult<IEnumerable<Receipts>>> GetPending()
         {
             var pending = await _db.Receipts
-                .Where(r => (r.WeightOut == null || r.WeightOut == 0) && !r.IsPublic && r.DeletedAt == null)
+                .Where(r => r.WeightOut == null && !r.IsPublic && r.DeletedAt == null)
                 .Include(r => r.Product)
                 .Include(r => r.Vehicle)
                 .Include(r => r.Driver)
@@ -193,8 +199,54 @@ namespace HandledWeight.Controllers
             return Ok(pending);
         }
 
+        // POST/PATCH: api/Receipt/Finalize/{id}
+        // Finaliza un recibo pendiente con una sola pesada registrada (WeightIn)
+        [HttpPost("Finalize/{id}")]
+        [HttpPatch("Finalize/{id}")]
+        public async Task<ActionResult<Receipts>> FinalizeSingleWeight(int id)
+        {
+            var receipt = await _db.Receipts
+                .Include(r => r.Product)
+                .Include(r => r.Vehicle)
+                .Include(r => r.Driver)
+                .Include(r => r.BussinesPartner)
+                .FirstOrDefaultAsync(r => r.Id == id && r.DeletedAt == null);
+
+            if (receipt == null)
+                return NotFound(new { message = $"Recibo con Id {id} no encontrado." });
+
+            decimal pEntrada = receipt.WeightIn ?? receipt.GrossWeight ?? 0;
+            receipt.WeightIn = pEntrada;
+            receipt.GrossWeight = pEntrada;
+            receipt.WeightOut = 0;
+            receipt.Tara = 0;
+            receipt.TotalWeight = pEntrada;
+
+            if (receipt.FitFactor.HasValue && receipt.FitFactor > 0)
+            {
+                decimal factorDec = receipt.FitFactor.Value >= 1 ? (receipt.FitFactor.Value / 100m) : receipt.FitFactor.Value;
+                receipt.TotalWeightAdjust = pEntrada * (1m - factorDec);
+            }
+            else
+            {
+                receipt.TotalWeightAdjust = pEntrada;
+            }
+
+            if (receipt.Price.HasValue && receipt.Price > 0)
+            {
+                receipt.TotalAmount = (receipt.TotalWeightAdjust ?? pEntrada) * receipt.Price.Value;
+            }
+
+            receipt.LastUpdatedAt = DateTime.UtcNow;
+
+            _db.Receipts.Update(receipt);
+            await _db.SaveChangesAsync();
+
+            return Ok(receipt);
+        }
+
         // PATCH: api/Receipt/SetWeightOut/{id}
-        // Recibe el id en la ruta (o en el body) y actualiza WeightOut/Tara, recalcula totales e imprime ticket.
+        // Recibe el id en la ruta (o en el body) y actualiza WeightOut/Tara, recalcula totales.
         [HttpPatch("SetWeightOut/{id?}")]
         [HttpPost("SetWeightOut/{id?}")]
         public async Task<ActionResult<Receipts>> SetWeightOut([FromRoute] int? id, [FromBody] SetWeightOutDto? dto = null)

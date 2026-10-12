@@ -55,6 +55,10 @@ namespace HandledWeight.Services
             {
                 sb.AppendLine("TICKET DE SALIDA");
             }
+            else if (receipt.WeightOut.HasValue && receipt.WeightOut == 0)
+            {
+                sb.AppendLine("TICKET DE PESAJE");
+            }
             else
             {
                 sb.AppendLine("TICKET DE ENTRADA");
@@ -79,7 +83,7 @@ namespace HandledWeight.Services
             decimal pEntrada = receipt.WeightIn ?? receipt.GrossWeight ?? 0;
             decimal pSalida = receipt.WeightOut ?? receipt.Tara ?? 0;
 
-            if (receipt.IsPublic)
+            if (receipt.IsPublic || (receipt.WeightOut.HasValue && receipt.WeightOut == 0))
             {
                 if (useEscPos) sb.Append(EscBoldOn);
                 sb.AppendLine(FormatLine("PESO REGISTRADO:", $"{pEntrada:N0} kg"));
@@ -87,9 +91,9 @@ namespace HandledWeight.Services
                 sb.AppendLine(FormatLine("PESO NETO:", $"{pEntrada:N0} kg"));
                 if (useEscPos) sb.Append(EscBoldOff);
             }
-            else if (pSalida == 0)
+            else if (!receipt.WeightOut.HasValue)
             {
-                // Solo primera pesada (Entrada)
+                // Solo primera pesada (Entrada pendiente)
                 if (useEscPos) sb.Append(EscBoldOn);
                 sb.AppendLine(FormatLine("PESO ENTRADA:", $"{pEntrada:N0} kg"));
                 sb.AppendLine(FormatLine("PESO SALIDA:", "PENDIENTE"));

@@ -1,4 +1,4 @@
-﻿using HandledWeight.Infrastructure.Persistence;
+using HandledWeight.Infrastructure.Persistence;
 using HandledWeight.Services.Weight;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -22,16 +22,39 @@ namespace HandledWeight.Controllers
         [HttpGet("SetScale/{id}")]
         public async Task<IActionResult> SetScale(int id)
         {
-            var scale = await _context.Devices.FirstOrDefaultAsync(s => s.Id == id && s.IsActive);
+            var scale = await _context.Devices.FirstOrDefaultAsync(s => s.Id == id && s.DeletedAt == null);
             if (scale == null)
             {
-                //Abrimos la conexion hacia la báscula
-                return Ok("No encontro nada alv");
+                return NotFound(new { message = "Báscula no encontrada." });
             }
-                this.scaleService.IniciarConexion(scale.Port, scale);
-                this.scaleService.SolicitarPesoBajoDemanda();
-            // Implementation needed here. For now, return Ok to satisfy return requirements.
-            return Ok("Creo que jalo esta madre");
+
+            scale.IsActive = true;
+            scale.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            bool connected = false;
+            string connMsg = "Báscula establecida como predeterminada y conectada.";
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(scale.Port))
+                {
+                    this.scaleService.IniciarConexion(scale.Port, scale);
+                    this.scaleService.SolicitarPesoBajoDemanda();
+                    connected = this.scaleService.IsConnected;
+                }
+            }
+            catch (Exception ex)
+            {
+                connected = false;
+                connMsg = $"Báscula establecida como predeterminada (Puerto {scale.Port}: {ex.Message})";
+            }
+
+            return Ok(new
+            {
+                message = connMsg,
+                scale,
+                isConnected = connected
+            });
         }
     }
 }

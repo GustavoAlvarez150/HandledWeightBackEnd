@@ -30,15 +30,7 @@ namespace HandledWeight.Controllers
                 return NotFound(new { message = "No se encontro impresora." });
             }
 
-            // Marcar esta impresora como activa y actualizar fecha
-            var allPrinters = await _context.Devices
-                .Where(d => d.Unit == null || d.Unit.Trim() == "")
-                .ToListAsync();
-            foreach (var p in allPrinters)
-            {
-                p.IsActive = (p.Id == id);
-            }
-
+            // Marcar esta impresora como predeterminada actualizando su fecha
             printer.IsActive = true;
             printer.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();

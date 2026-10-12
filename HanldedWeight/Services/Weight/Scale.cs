@@ -1,4 +1,4 @@
-﻿using HandledWeight.Entities;
+using HandledWeight.Entities;
 using Microsoft.AspNetCore.SignalR;
 using System;
 using System.IO.Ports;
@@ -13,6 +13,9 @@ namespace HandledWeight.Services.Weight
         private readonly IHubContext<ScaleHub> _hubContext;
         private readonly object _lock = new object();
 
+        public bool IsConnected => _serialPort != null && _serialPort.IsOpen;
+        public Devices? ActiveDevice { get; private set; }
+
         public Scale(IHubContext<ScaleHub> hubContext)
         {
             _hubContext = hubContext;
@@ -21,11 +24,14 @@ namespace HandledWeight.Services.Weight
         public void IniciarConexion(string puertoCom, Devices propersCom)
         {
             CerrarConexion();
+            ActiveDevice = propersCom;
 
             var parity = Enum.TryParse<Parity>(propersCom.Parity, true, out var parsedParity) ? parsedParity : Parity.None;
             var stopBits = Enum.TryParse<StopBits>(propersCom.StopBits, true, out var parsedStopBits) ? parsedStopBits : StopBits.One;
+            var baud = propersCom.BaudRate > 0 ? propersCom.BaudRate : 9600;
+            var dataBits = propersCom.DataBits > 0 ? propersCom.DataBits : 8;
 
-            _serialPort = new SerialPort(puertoCom, propersCom.BaudRate, parity, propersCom.DataBits, stopBits)
+            _serialPort = new SerialPort(puertoCom, baud, parity, dataBits, stopBits)
             {
                 ReadTimeout = 1000,
                 WriteTimeout = 1000,
@@ -48,7 +54,7 @@ namespace HandledWeight.Services.Weight
                     try
                     {
                         // Enviar comando 'P' (Print / Peso) seguido de retorno de carro y nueva línea
-                        _serialPort.Write("P\r\n");
+                        _serialPort.Write("1");
                     }
                     catch (Exception ex)
                     {
