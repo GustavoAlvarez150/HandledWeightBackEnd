@@ -36,31 +36,46 @@ namespace HandledWeight.Controllers
             await _context.SaveChangesAsync();
 
             var sb = new StringBuilder();
-            sb.Append("\x1B@");       // Reiniciar impresora
-            sb.Append("\x1Ba\x01");   // Centrar texto
+
+            // 1. Inicializar impresora
+            sb.Append("\x1B@");          // ESC @ : Reset / Inicializar
+
+            // 2. Establecer página de caracteres ESC/POS a PC850 (Multilingual) o PC437
+            // \x1B\x74\x02 = ESC t 2 (Página 850 Multilingüe - común en térmicas EPSON / Bematech / genéricas)
+            sb.Append("\x1B\x74\x02");
+
+            // Encabezado
+            sb.Append("\x1Ba\x01");      // ESC a 1 : Centrar
             sb.AppendLine("FORRAJERA SAN RAFAEL, S.A. DE C.V.");
             sb.AppendLine("KM.4 CARR. SAN JUAN - GUADALAJARA");
             sb.AppendLine("SAN JUAN DE LOS LAGOS, JAL.");
             sb.AppendLine("TEL: (395) 785 33 06");
             sb.AppendLine();
-            sb.Append("\x1BE\x01");   // Negrita ON
+
+            // Título destacado
+            sb.Append("\x1BE\x01");      // ESC E 1 : Negrita ON
             sb.AppendLine("PRUEBA DE CONEXION");
-            sb.Append("\x1BE\x00");   // Negrita OFF
-            sb.AppendLine(new string('-', 42));
-            sb.Append("\x1Ba\x00");   // Izquierda
+            sb.Append("\x1BE\x00");      // ESC E 0 : Negrita OFF
+            sb.AppendLine(new string('-', 40));
+
+            // Datos del dispositivo
+            sb.Append("\x1Ba\x00");      // ESC a 0 : Alineación izquierda
             sb.AppendLine($"Fecha/Hora:  {DateTime.Now:dd/MM/yyyy hh:mm:ss tt}");
             sb.AppendLine($"Dispositivo: {printer.Name}");
             sb.AppendLine($"Puerto COM:  {printer.Port}");
             sb.AppendLine($"BaudRate:    {printer.BaudRate}");
-            sb.AppendLine($"Estado:      Activa y Configurada");
-            sb.AppendLine(new string('-', 42));
+            sb.AppendLine("Estado:      Activa y Configurada");
+            sb.AppendLine(new string('-', 40));
             sb.AppendLine();
-            sb.Append("\x1Ba\x01");   // Centrar
+
+            // Pie
+            sb.Append("\x1Ba\x01");      // Centrar
             sb.AppendLine("Impresora lista para operar.");
             sb.AppendLine("WWW.GRUPOSANRAFAEL.COM.MX");
-            sb.AppendLine();
-            sb.AppendLine();
-            sb.Append("\x1DV\x41\x03"); // Cortar papel
+
+            // 3. Alimentar papel antes del corte (evita que el corte caiga sobre el texto)
+            sb.Append("\x1Bd\x04");      // ESC d 4 : Avanza 4 líneas
+            sb.Append("\x1DV\x41\x03");  // GS V A 3 : Corte parcial con margen
 
             var pageToPrint = sb.ToString();
 
@@ -74,11 +89,11 @@ namespace HandledWeight.Controllers
                 return StatusCode(500, new { message = $"Error al enviar prueba a la impresora: {ex.Message}", printer });
             }
 
-            return Ok(new 
-            { 
-                message = printSuccess ? "Impresora seleccionada y probada correctamente" : "Impresora guardada, pero no respondio al puerto COM", 
+            return Ok(new
+            {
+                message = printSuccess ? "Impresora seleccionada y probada correctamente" : "Impresora guardada, pero no respondio al puerto COM",
                 printer,
-                success = printSuccess 
+                success = printSuccess
             });
         }
 
