@@ -27,24 +27,9 @@ namespace HandledWeight.Services.Print
 
         public async Task<bool> PrintTextAsync(string portName, string text, int baudRate = 9600)
         {
-            Encoding encoding;
-            try
-            {
-                encoding = Encoding.GetEncoding(850);
-            }
-            catch
-            {
-                try
-                {
-                    encoding = Encoding.GetEncoding("windows-1252");
-                }
-                catch
-                {
-                    encoding = Encoding.UTF8;
-                }
-            }
-
-            byte[] textBytes = encoding.GetBytes(text);
+            // Sanitizar a ASCII puro de 1 byte para compatibilidad total con impresoras de matriz de puntos (POS)
+            string cleanText = PosTicketService.SanitizeToAscii(text);
+            byte[] textBytes = Encoding.ASCII.GetBytes(cleanText);
             return await SendBytesAsync(portName, textBytes, baudRate);
         }
 
@@ -56,7 +41,9 @@ namespace HandledWeight.Services.Print
                 {
                     using (var serialPort = new SerialPort(portName, baudRate, Parity.None, 8, StopBits.One))
                     {
-                        serialPort.WriteTimeout = 3000;
+                        serialPort.DtrEnable = true;
+                        serialPort.RtsEnable = true;
+                        serialPort.WriteTimeout = 5000;
                         serialPort.Open();
 
                         if (serialPort.IsOpen)
