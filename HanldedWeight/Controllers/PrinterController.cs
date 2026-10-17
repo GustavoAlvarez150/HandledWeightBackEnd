@@ -40,8 +40,8 @@ namespace HandledWeight.Controllers
             // 1. Inicializar impresora
             sb.Append("\x1B@");          // ESC @ : Reset / Inicializar
 
-            // 2. Establecer página de caracteres ESC/POS a PC850 (Multilingual) o PC437
-            // \x1B\x74\x02 = ESC t 2 (Página 850 Multilingüe - común en térmicas EPSON / Bematech / genéricas)
+            // 2. Establecer pï¿½gina de caracteres ESC/POS a PC850 (Multilingual) o PC437
+            // \x1B\x74\x02 = ESC t 2 (Pï¿½gina 850 Multilingï¿½e - comï¿½n en tï¿½rmicas EPSON / Bematech / genï¿½ricas)
             sb.Append("\x1B\x74\x02");
 
             // Encabezado
@@ -52,14 +52,14 @@ namespace HandledWeight.Controllers
             sb.AppendLine("TEL: (395) 785 33 06");
             sb.AppendLine();
 
-            // Título destacado
+            // Tï¿½tulo destacado
             sb.Append("\x1BE\x01");      // ESC E 1 : Negrita ON
             sb.AppendLine("PRUEBA DE CONEXION");
             sb.Append("\x1BE\x00");      // ESC E 0 : Negrita OFF
             sb.AppendLine(new string('-', 40));
 
             // Datos del dispositivo
-            sb.Append("\x1Ba\x00");      // ESC a 0 : Alineación izquierda
+            sb.Append("\x1Ba\x00");      // ESC a 0 : Alineaciï¿½n izquierda
             sb.AppendLine($"Fecha/Hora:  {DateTime.Now:dd/MM/yyyy hh:mm:ss tt}");
             sb.AppendLine($"Dispositivo: {printer.Name}");
             sb.AppendLine($"Puerto COM:  {printer.Port}");
@@ -74,7 +74,7 @@ namespace HandledWeight.Controllers
             sb.AppendLine("WWW.GRUPOSANRAFAEL.COM.MX");
 
             // 3. Alimentar papel antes del corte (evita que el corte caiga sobre el texto)
-            sb.Append("\x1Bd\x04");      // ESC d 4 : Avanza 4 líneas
+            sb.Append("\x1Bd\x04");      // ESC d 4 : Avanza 4 lï¿½neas
             sb.Append("\x1DV\x41\x03");  // GS V A 3 : Corte parcial con margen
 
             var pageToPrint = sb.ToString();
@@ -133,7 +133,7 @@ namespace HandledWeight.Controllers
             }
 
             var factory = await _context.Factory.Where(f => f.DeletedAt == null).OrderByDescending(f => f.Id).FirstOrDefaultAsync();
-            var ticketText = PosTicketService.GenerateReceiptText(receipt, factory, useEscPos: true);
+            var ticketText = PosTicketService.GenerateReceiptText(receipt, factory, useEscPos: false);
             var success = await _printerService.PrintTextAsync(device.Port, ticketText, device.BaudRate);
 
             return Ok(new 

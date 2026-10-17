@@ -364,7 +364,7 @@ namespace HandledWeight.Controllers
                 return BadRequest(new { message = "No hay impresora activa con puerto COM valido configurada." });
 
             var factory = await _db.Factory.Where(f => f.DeletedAt == null).OrderByDescending(f => f.Id).FirstOrDefaultAsync();
-            var pageToPrint = PosTicketService.GenerateReceiptText(receipt, factory, useEscPos: true);
+            var pageToPrint = PosTicketService.GenerateReceiptText(receipt, factory, useEscPos: false);
             var success = await _printerService.PrintTextAsync(device.Port, pageToPrint, device.BaudRate);
 
             return Ok(new 
